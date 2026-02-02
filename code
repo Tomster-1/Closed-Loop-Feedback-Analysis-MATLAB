@@ -1,0 +1,209 @@
+% Feedback loop: negative unity feedback (Figure 1)
+clear; close all; clc;
+
+%% Given transfer functions
+% G(s) = 10(s+4) / ( s(s^2 + 4s + 5) )
+% K(s) = (s+1) / (s+3)
+
+s = tf('s');
+
+numG = 10*[1 4];
+denG = conv([1 0], [1 4 5]);          % s*(s^2 + 4s + 5)
+G    = tf(numG, denG);
+
+numK = [1 1];
+denK = [1 3];
+K    = tf(numK, denK);
+
+%% Open-loop: L(s) = K(s)G(s)
+L = series(K, G);                      % (also L = K*G)
+
+% Explicit polynomial construction (required: conv)
+Lnum = conv(numG, numK);
+Lden = conv(denG, denK);
+
+%% (a) Closed-loop transfer function T(s) = y/r = L/(1+L)
+% Using feedback (required: feedback)
+T = feedback(L, 1);
+
+% Manual polynomial form for T(s): T = N_L / (D_L + N_L)
+DenCL = polyAdd(Lden, [zeros(1, length(Lden)-length(Lnum)) Lnum]); % align degrees
+T_manual = tf(Lnum, DenCL); %#ok<NASGU>
+
+%% (d) Sensitivity function S(s) = 1/(1+L)
+S = feedback(1, L);
+
+%% (b,c,d) Poles, zeros, DC gain
+pT  = pole(T);
+zT  = zero(T);
+dcT = dcgain(T);
+
+pS  = pole(S);
+zS  = zero(S);
+
+%% (e) Unit step response of T(s) on given axes
+t = 0:0.01:10;
+
+figure('Name','Q2(e) Unit Step Response of T(s)');
+step(T, t);
+grid on;
+xlabel('Time (s)'); ylabel('Output y(t)');
+title('Unit Step Response of Closed-Loop T(s) (r \rightarrow y)');
+axis([0 10 0 1.2]);
+
+%% (f) Response to r(t) = sin(wt), w = 1.7, over [0,10] with dt = 0.01
+w = 1.7;
+r = sin(w*t);
+y = lsim(T, r, t);
+
+figure('Name','Q2(f) Sinusoidal Response (w = 1.7 rad/s)');
+plot(t, r, 'k--', 'LineWidth', 1.0); hold on;
+plot(t, y, 'b',  'LineWidth', 1.2);
+grid on;
+xlabel('Time (s)'); ylabel('Output');
+title('Response y(t) to r(t) = sin(\omega t), \omega = 1.7 rad/s');
+legend('r(t)','y(t)','Location','best');
+axis([0 10 -1.5 1.5]);
+hold off;
+
+%% (g) Estimate phase shift from T(jw)
+Tjw     = evalfr(T, 1j*w);
+magTjw  = abs(Tjw);
+phi_rad = angle(Tjw);
+phi_deg = rad2deg(phi_rad);
+
+% Equivalent time shift: y(t) ≈ |T(jw)| sin(w(t - td)), where td = -phi/w
+t_delay = -phi_rad / w;
+
+%% ========================= BIG PRINT BLOCK =============================
+fprintf('\n============================================================\n');
+fprintf('ENG3018 Practical 2 — PRINT BLOCK\n');
+fprintf('Feedback loop: negative unity feedback (Figure 1)\n');
+fprintf('============================================================\n');
+
+fprintf('\nGiven:\n');
+fprintf('  G(s) = 10(s+4) / [ s(s^2 + 4s + 5) ]\n');
+fprintf('  K(s) = (s+1) / (s+3)\n');
+
+fprintf('\nOpen-loop L(s) = K(s)G(s):\n');
+printTFPoly('L(s)', Lnum, Lden);
+
+fprintf('\n(a) Closed-loop transfer function T(s) = y/r = L/(1+L):\n');
+[numT, denT] = tfdata(T, 'v');
+printTFPoly('T(s)', numT, denT);
+
+fprintf('\n(b) Poles and zeros of T(s):\n');
+fprintf('  Poles: %s\n', cvec(pT));
+fprintf('  Zeros: %s\n', cvec(zT));
+
+fprintf('\n(c) DC gain of T(s):\n');
+fprintf('  T(0) = %.6g\n', dcT);
+
+fprintf('\n(d) Sensitivity function S(s) = 1/(1+L):\n');
+[numS, denS] = tfdata(S, 'v');
+printTFPoly('S(s)', numS, denS);
+fprintf('  Poles: %s\n', cvec(pS));
+fprintf('  Zeros: %s\n', cvec(zS));
+
+fprintf('\n(e) Unit step response plotted (Figure: Q2(e)).\n');
+fprintf('(f) Sinusoidal response plotted for r(t)=sin(%.2f t) (Figure: Q2(f)).\n', w);
+
+fprintf('\n(g) Phase shift estimate at w = %.2f rad/s using T(jw):\n', w);
+fprintf('  T(jw) = %.6g %+.6gj\n', real(Tjw), imag(Tjw));
+fprintf('  |T(jw)| = %.6g\n', magTjw);
+fprintf('  phase(T(jw)) = %.6g rad = %.4f deg\n', phi_rad, phi_deg);
+fprintf('  Equivalent time shift: td = %.6g s (y ≈ |T| sin(w(t - td)))\n', t_delay);
+
+fprintf('\nCharacteristic equation (1 + L(s) = 0) => Den_cl(s) = 0:\n');
+fprintf('  %s = 0\n', polyStr(denT));
+
+% Required use of poly(): rebuild characteristic polynomial from poles
+fprintf('\nCheck via poly(poles(T)):\n');
+fprintf('  %s = 0\n', polyStr(poly(pT)));
+
+fprintf('============================================================\n\n');
+
+%% ========================= Local helper functions =======================
+function c = polyAdd(a, b)
+% Add polynomials (descending powers), padding to match length
+na = length(a); nb = length(b);
+if na < nb
+    a = [zeros(1, nb-na) a];
+elseif nb < na
+    b = [zeros(1, na-nb) b];
+end
+c = a + b;
+end
+
+function printTFPoly(name, num, den)
+fprintf('  %s = (%s) / (%s)\n', name, polyStr(num), polyStr(den));
+end
+
+function s = polyStr(p)
+% Convert polynomial coeff vector into a readable string in s (descending powers)
+tol = 1e-12;
+p(abs(p) < tol) = 0;
+
+n = length(p) - 1;
+parts = {};
+
+for i = 1:length(p)
+    coeff = p(i);
+    pow   = n - (i-1);
+    if coeff == 0, continue; end
+
+    if coeff > 0 && ~isempty(parts)
+        signStr = ' + ';
+    elseif coeff < 0
+        signStr = ' - ';
+    else
+        signStr = '';
+    end
+
+    a = abs(coeff);
+
+    if pow == 0
+        term = sprintf('%.6g', a);
+    elseif pow == 1
+        if abs(a-1) < tol
+            term = 's';
+        else
+            term = sprintf('%.6g s', a);
+        end
+    else
+        if abs(a-1) < tol
+            term = sprintf('s^%d', pow);
+        else
+            term = sprintf('%.6g s^%d', a, pow);
+        end
+    end
+
+    parts{end+1} = [signStr term]; %#ok<AGROW>
+end
+
+if isempty(parts)
+    s = '0';
+else
+    s = strjoin(parts, '');
+    if startsWith(s,' + '), s = s(4:end); end
+    if startsWith(s,' - '), s = ['-' s(4:end)]; end
+end
+end
+
+function s = cvec(v)
+% Pretty print vector of (possibly complex) numbers
+if isempty(v)
+    s = '[]';
+    return;
+end
+
+out = strings(1, length(v));
+for k = 1:length(v)
+    if abs(imag(v(k))) < 1e-10
+        out(k) = sprintf('%.6g', real(v(k)));
+    else
+        out(k) = sprintf('%.6g%+.6gj', real(v(k)), imag(v(k)));
+    end
+end
+s = "[" + strjoin(out, ", ") + "]";
+end
